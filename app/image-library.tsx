@@ -16,6 +16,7 @@ export type LibraryImage = {
   createdAt: string;
   width: number | null;
   height: number | null;
+  fileSize: number;
   signedUrl: string;
   tags: TagOption[];
 };
@@ -33,6 +34,12 @@ function formatDate(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function ImageLibrary({
@@ -470,8 +477,22 @@ export function ImageLibrary({
                 <time className="mt-1 block text-sm text-zinc-500 dark:text-zinc-400">
                   {formatDate(selectedImage.createdAt)}
                 </time>
+                <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">
+                  {selectedImage.width && selectedImage.height
+                    ? `${selectedImage.width} × ${selectedImage.height}`
+                    : "サイズ情報なし"}
+                  <span aria-hidden="true" className="mx-2">・</span>
+                  {formatFileSize(selectedImage.fileSize)}
+                </p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <a
+                  href={`/api/images/${selectedImage.id}/download`}
+                  download={selectedImage.fileName}
+                  className="min-h-9 rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100 dark:border-stone-700 dark:text-stone-200 dark:hover:bg-stone-800"
+                >
+                  画像を保存
+                </a>
                 {selectedImage.uploadedBy === currentUserId && (
                   <button
                     type="button"

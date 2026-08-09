@@ -152,3 +152,25 @@ export async function createPresignedDownloadUrl(objectKey: string) {
     { expiresIn: downloadUrlExpiresIn }
   );
 }
+
+export async function createPresignedAttachmentUrl(
+  objectKey: string,
+  fileName: string
+) {
+  const safeFileName = fileName.replace(/[\r\n]/g, "");
+  const extension = safeFileName.match(/\.[a-z0-9]{1,10}$/i)?.[0] ?? "";
+  const fallbackFileName = `download${extension}`;
+  const contentDisposition =
+    `attachment; filename="${fallbackFileName}"; ` +
+    `filename*=UTF-8''${encodeURIComponent(safeFileName)}`;
+
+  return getSignedUrl(
+    getR2Client(),
+    new GetObjectCommand({
+      Bucket: getBucketName(),
+      Key: objectKey,
+      ResponseContentDisposition: contentDisposition,
+    }),
+    { expiresIn: downloadUrlExpiresIn }
+  );
+}

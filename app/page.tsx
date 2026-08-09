@@ -13,6 +13,7 @@ type ImageRow = {
   created_at: string;
   width: number | null;
   height: number | null;
+  file_size: number;
   image_tags: Array<{
     tags: TagOption | TagOption[] | null;
   }>;
@@ -60,7 +61,7 @@ export default async function Home() {
     supabase
       .from("images")
       .select(
-        "id, file_name, storage_path, uploaded_by, created_at, width, height, image_tags(tags(id, name))"
+        "id, file_name, storage_path, uploaded_by, created_at, width, height, file_size, image_tags(tags(id, name))"
       )
       .order("created_at", { ascending: false }),
     supabase.from("tags").select("id, name").order("name"),
@@ -86,6 +87,7 @@ export default async function Home() {
             createdAt: image.created_at,
             width: image.width,
             height: image.height,
+            fileSize: image.file_size,
             signedUrl: await createPresignedDownloadUrl(image.storage_path),
             tags: getImageTags(image),
           } satisfies LibraryImage;

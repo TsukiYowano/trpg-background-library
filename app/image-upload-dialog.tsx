@@ -366,7 +366,7 @@ export function ImageUploadDialog({
       onClick={closeDialog}
     >
       <div
-        className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl shadow-black/30 dark:bg-stone-900"
+        className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl shadow-black/30 dark:bg-stone-900 sm:max-h-[92vh]"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex shrink-0 items-center justify-between border-b border-stone-200 px-5 py-4 dark:border-stone-800 sm:px-6">
@@ -388,7 +388,7 @@ export function ImageUploadDialog({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto bg-stone-50/60 p-4 dark:bg-stone-950/30 sm:p-6">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto bg-stone-50/60 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] dark:bg-stone-950/30 sm:p-6 sm:pb-6">
           <section className="rounded-xl border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-900">
             <input
               ref={fileInputRef}
@@ -648,12 +648,12 @@ export function ImageUploadDialog({
           )}
         </div>
 
-        <footer className="flex shrink-0 items-center justify-end border-t border-stone-200 bg-white px-5 py-4 dark:border-stone-800 dark:bg-stone-900 sm:px-6">
+        <footer className="flex shrink-0 items-center justify-end border-t border-stone-200 bg-white px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] dark:border-stone-800 dark:bg-stone-900 sm:px-6 sm:py-4">
           <button
             type="button"
             onClick={uploadAll}
             disabled={files.length === 0 || isUploading}
-            className="min-h-11 rounded-lg bg-stone-900 px-6 py-2.5 font-medium text-white shadow-sm hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-stone-50 dark:text-stone-950 dark:hover:bg-stone-200"
+            className="min-h-11 w-full rounded-lg bg-stone-900 px-6 py-2.5 font-medium text-white shadow-sm hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-stone-50 dark:text-stone-950 dark:hover:bg-stone-200 sm:w-auto"
           >
             {isUploading ? "登録中…" : `${files.length}枚を登録`}
           </button>
