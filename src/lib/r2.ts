@@ -55,7 +55,7 @@ function getBucketName() {
 }
 
 function signTicketPayload(payload: string) {
-  return createHmac("sha256", requireEnv("R2_SECRET_ACCESS_KEY"))
+  return createHmac("sha256", requireEnv("UPLOAD_TICKET_SECRET"))
     .update(payload)
     .digest("base64url");
 }
