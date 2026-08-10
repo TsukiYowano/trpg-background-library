@@ -24,6 +24,7 @@ type UploadTicket = {
   userId: string;
   fileName: string;
   contentType: string;
+  fileSize: number;
   expiresAt: number;
 };
 
@@ -76,7 +77,8 @@ export function validateImageFile(fileName: string, contentType: string) {
 export async function createPresignedUpload(
   userId: string,
   fileName: string,
-  contentType: string
+  contentType: string,
+  fileSize: number
 ) {
   const extension = validateImageFile(fileName, contentType);
   if (!extension) throw new Error("Unsupported image type");
@@ -97,6 +99,7 @@ export async function createPresignedUpload(
     userId,
     fileName,
     contentType,
+    fileSize,
     expiresAt: Date.now() + uploadUrlExpiresIn * 1000,
   });
 
@@ -122,6 +125,8 @@ export function verifyUploadTicket(value: string, userId: string) {
       ticket.userId !== userId ||
       ticket.expiresAt < Date.now() ||
       !ticket.objectKey.startsWith(`${userId}/`) ||
+      !Number.isSafeInteger(ticket.fileSize) ||
+      ticket.fileSize <= 0 ||
       !validateImageFile(ticket.fileName, ticket.contentType)
     ) {
       return null;

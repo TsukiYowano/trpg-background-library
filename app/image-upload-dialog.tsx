@@ -21,6 +21,7 @@ type UploadResult = {
   fileName: string;
   registered: boolean;
   error?: string;
+  errorCode?: string;
   tagWarning?: string;
 };
 
@@ -238,16 +239,25 @@ export function ImageUploadDialog({
         body: JSON.stringify({
           fileName: item.file.name,
           contentType: item.file.type,
+          fileSize: item.file.size,
         }),
       });
       const details = (await urlResponse.json()) as {
         uploadUrl?: string;
         ticket?: string;
         error?: string;
+        message?: string;
       };
 
       if (!urlResponse.ok || !details.uploadUrl || !details.ticket) {
-        throw new Error(details.error ?? "アップロードURLを発行できませんでした。");
+        return {
+          key: item.key,
+          fileName: item.file.name,
+          registered: false,
+          error:
+            details.message ?? details.error ?? "アップロードURLを発行できませんでした。",
+          errorCode: details.error,
+        };
       }
 
       const putResponse = await fetch(details.uploadUrl, {
@@ -273,11 +283,18 @@ export function ImageUploadDialog({
       });
       const completed = (await completeResponse.json()) as {
         error?: string;
+        message?: string;
         tagError?: string;
       };
 
       if (!completeResponse.ok) {
-        throw new Error(completed.error ?? "画像情報を登録できませんでした。");
+        return {
+          key: item.key,
+          fileName: item.file.name,
+          registered: false,
+          error: completed.message ?? completed.error ?? "画像情報を登録できませんでした。",
+          errorCode: completed.error,
+        };
       }
 
       return {
@@ -331,6 +348,15 @@ export function ImageUploadDialog({
       })
     );
     setResults(uploadResults);
+    if (
+      uploadResults.some(
+        (result) => result.errorCode === "STORAGE_LIMIT_EXCEEDED"
+      )
+    ) {
+      setSelectionMessage(
+        "ストレージ容量が上限に達しました。新しい画像を追加するには、不要な画像を削除してください。"
+      );
+    }
     setIsUploading(false);
 
     if (registeredKeys.size > 0) router.refresh();

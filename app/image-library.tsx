@@ -8,6 +8,7 @@ import {
 } from "./image-upload-dialog";
 import { ImageTagEditor } from "./image-tag-editor";
 import { TagManagementDialog } from "./tag-management-dialog";
+import { IMAGE_STORAGE_LIMIT_BYTES } from "@/src/lib/storage-limit";
 
 export type LibraryImage = {
   id: string;
@@ -23,6 +24,7 @@ export type LibraryImage = {
 
 type ImageLibraryProps = {
   images: LibraryImage[];
+  initialStorageUsage: number;
   currentUserId: string;
   availableTags: TagOption[];
   tagLoadError: string | null;
@@ -42,8 +44,16 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatStorageSize(bytes: number) {
+  if (bytes >= 1_000_000_000) {
+    return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+  }
+  return `${Math.round(bytes / 1_000_000)} MB`;
+}
+
 export function ImageLibrary({
   images,
+  initialStorageUsage,
   currentUserId,
   availableTags,
   tagLoadError,
@@ -75,6 +85,17 @@ export function ImageLibrary({
     .filter((tag) => !deletedTagIds.includes(tag.id))
     .map((tag) => ({ ...tag, name: renamedTags[tag.id] ?? tag.name }));
   const activeImages = images.filter((image) => !deletedImageIds.includes(image.id));
+  const locallyDeletedBytes = images
+    .filter((image) => deletedImageIds.includes(image.id))
+    .reduce((total, image) => total + image.fileSize, 0);
+  const storageUsage = Math.max(0, initialStorageUsage - locallyDeletedBytes);
+  const storageRemaining = Math.max(0, IMAGE_STORAGE_LIMIT_BYTES - storageUsage);
+  const isStorageFull = storageUsage >= IMAGE_STORAGE_LIMIT_BYTES;
+  const isStorageWarning = storageUsage >= 8_000_000_000;
+  const storagePercentage = Math.min(
+    100,
+    (storageUsage / IMAGE_STORAGE_LIMIT_BYTES) * 100
+  );
   const selectedImage =
     activeImages.find((image) => image.id === selectedImageId) ?? null;
   const selectedFilterTags = knownTags.filter((tag) =>
@@ -209,11 +230,43 @@ export function ImageLibrary({
             全{activeImages.length}件中 {filteredImages.length}件表示
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-3 sm:items-end">
+          <div
+            className={`w-full min-w-56 rounded-lg border px-3 py-2 sm:w-64 ${
+              isStorageWarning
+                ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30"
+                : "border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-900"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="font-medium text-stone-600 dark:text-stone-300">
+                ストレージ
+              </span>
+              <span className={isStorageWarning ? "font-semibold text-amber-800 dark:text-amber-300" : "text-stone-500 dark:text-stone-400"}>
+                {formatStorageSize(storageUsage)} / 9 GB
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700">
+              <div
+                className={`h-full rounded-full ${isStorageWarning ? "bg-amber-600" : "bg-stone-600 dark:bg-stone-300"}`}
+                style={{ width: `${storagePercentage}%` }}
+              />
+            </div>
+            {isStorageWarning && (
+              <p className="mt-1.5 text-xs text-amber-800 dark:text-amber-300">
+                {isStorageFull
+                  ? "上限に達しています"
+                  : `残り約${formatStorageSize(storageRemaining)}`}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setIsUploadDialogOpen(true)}
-            className="min-h-11 rounded-lg bg-stone-900 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-stone-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-700 dark:bg-stone-50 dark:text-stone-950 dark:hover:bg-stone-200"
+            disabled={isStorageFull}
+            title={isStorageFull ? "ストレージ容量が上限に達しています" : undefined}
+            className="min-h-11 rounded-lg bg-stone-900 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-700 dark:bg-stone-50 dark:text-stone-950 dark:hover:bg-stone-200"
           >
             ＋ 画像を追加
           </button>
@@ -224,6 +277,7 @@ export function ImageLibrary({
           >
             タグ管理
           </button>
+          </div>
         </div>
       </div>
 

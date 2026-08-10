@@ -3,6 +3,11 @@ import {
   getR2ObjectMetadata,
   verifyUploadTicket,
 } from "@/src/lib/r2";
+import {
+  isStorageLimitDatabaseError,
+  STORAGE_LIMIT_ERROR_CODE,
+  STORAGE_LIMIT_MESSAGE,
+} from "@/src/lib/storage-limit";
 import { createClient } from "@/src/lib/supabase/server";
 
 type CompleteUploadBody = {
@@ -52,7 +57,7 @@ export async function POST(request: Request) {
   }
 
   const ticket = verifyUploadTicket(body.ticket, user.id);
-  if (!ticket) {
+  if (!ticket || ticket.fileSize !== body.fileSize) {
     return Response.json(
       { error: "アップロード情報の有効期限が切れているか、不正です。" },
       { status: 400 }
@@ -98,18 +103,16 @@ export async function POST(request: Request) {
     return Response.json({ success: true, imageId: existingImage.id });
   }
 
-  const { data: insertedImage, error: insertError } = await supabase
-    .from("images")
-    .insert({
-      file_name: ticket.fileName,
-      storage_path: ticket.objectKey,
-      uploaded_by: user.id,
-      width: body.width,
-      height: body.height,
-      file_size: body.fileSize,
-    })
-    .select("id")
-    .single();
+  const { data: insertedImageId, error: insertError } = await supabase.rpc(
+    "register_image_with_storage_limit",
+    {
+      p_file_name: ticket.fileName,
+      p_storage_path: ticket.objectKey,
+      p_width: body.width,
+      p_height: body.height,
+      p_file_size: body.fileSize,
+    }
+  );
 
   if (insertError) {
     const { data: concurrentlyInsertedImage } = await supabase
@@ -122,9 +125,22 @@ export async function POST(request: Request) {
       return Response.json({ success: true, imageId: concurrentlyInsertedImage.id });
     }
 
+    const storageLimitExceeded = isStorageLimitDatabaseError(insertError);
+
     try {
       await deleteR2Object(ticket.objectKey);
     } catch {
+      if (storageLimitExceeded) {
+        return Response.json(
+          {
+            error: STORAGE_LIMIT_ERROR_CODE,
+            message:
+              `${STORAGE_LIMIT_MESSAGE} アップロード済みファイルの後処理にも失敗したため、管理者へお問い合わせください。`,
+          },
+          { status: 500 }
+        );
+      }
+
       return Response.json(
         {
           error:
@@ -134,8 +150,31 @@ export async function POST(request: Request) {
       );
     }
 
+    if (storageLimitExceeded) {
+      return Response.json(
+        { error: STORAGE_LIMIT_ERROR_CODE, message: STORAGE_LIMIT_MESSAGE },
+        { status: 413 }
+      );
+    }
+
     return Response.json(
       { error: "画像情報を登録できませんでした。アップロードしたファイルは削除しました。" },
+      { status: 500 }
+    );
+  }
+
+  if (typeof insertedImageId !== "string") {
+    try {
+      await deleteR2Object(ticket.objectKey);
+    } catch {
+      return Response.json(
+        { error: "画像情報の登録結果を確認できず、アップロード済みファイルも削除できませんでした。" },
+        { status: 500 }
+      );
+    }
+
+    return Response.json(
+      { error: "画像情報の登録結果を確認できなかったため、アップロードを取り消しました。" },
       { status: 500 }
     );
   }
@@ -149,14 +188,14 @@ export async function POST(request: Request) {
     if (tagsError || existingTags?.length !== tagIds.length) {
       return Response.json({
         success: true,
-        imageId: insertedImage.id,
+        imageId: insertedImageId,
         tagError: "画像は登録されましたが、一部のタグを確認できずタグ付けに失敗しました。",
       });
     }
 
     const { error: imageTagsError } = await supabase.from("image_tags").insert(
       tagIds.map((tagId) => ({
-        image_id: insertedImage.id,
+        image_id: insertedImageId,
         tag_id: tagId,
         created_by: user.id,
       }))
@@ -165,11 +204,11 @@ export async function POST(request: Request) {
     if (imageTagsError) {
       return Response.json({
         success: true,
-        imageId: insertedImage.id,
+        imageId: insertedImageId,
         tagError: "画像は登録されましたが、タグ付けに失敗しました。",
       });
     }
   }
 
-  return Response.json({ success: true, imageId: insertedImage.id });
+  return Response.json({ success: true, imageId: insertedImageId });
 }

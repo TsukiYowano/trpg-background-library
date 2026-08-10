@@ -3,6 +3,7 @@ import { GoogleLoginButton } from "./google-login-button";
 import { ImageLibrary, type LibraryImage } from "./image-library";
 import type { TagOption } from "./image-upload-dialog";
 import { createPresignedDownloadUrl } from "@/src/lib/r2";
+import { parseStorageUsage } from "@/src/lib/storage-limit";
 import { createClient } from "@/src/lib/supabase/server";
 
 type ImageRow = {
@@ -13,7 +14,7 @@ type ImageRow = {
   created_at: string;
   width: number | null;
   height: number | null;
-  file_size: number;
+  file_size: number | null;
   image_tags: Array<{
     tags: TagOption | TagOption[] | null;
   }>;
@@ -57,7 +58,7 @@ export default async function Home() {
     );
   }
 
-  const [imagesResult, tagsResult] = await Promise.all([
+  const [imagesResult, tagsResult, storageUsageResult] = await Promise.all([
     supabase
       .from("images")
       .select(
@@ -65,6 +66,7 @@ export default async function Home() {
       )
       .order("created_at", { ascending: false }),
     supabase.from("tags").select("id, name").order("name"),
+    supabase.rpc("get_image_storage_usage"),
   ]);
 
   const { data, error } = imagesResult;
@@ -87,7 +89,7 @@ export default async function Home() {
             createdAt: image.created_at,
             width: image.width,
             height: image.height,
-            fileSize: image.file_size,
+            fileSize: image.file_size ?? 0,
             signedUrl: await createPresignedDownloadUrl(image.storage_path),
             tags: getImageTags(image),
           } satisfies LibraryImage;
@@ -136,6 +138,10 @@ export default async function Home() {
       <div className="mx-auto max-w-7xl px-5 py-8 sm:px-6 sm:py-10">
         <ImageLibrary
           images={images}
+          initialStorageUsage={
+            parseStorageUsage(storageUsageResult.data) ??
+            rows.reduce((total, image) => total + (image.file_size ?? 0), 0)
+          }
           currentUserId={user.id}
           availableTags={availableTags}
           tagLoadError={
