@@ -51,6 +51,13 @@ function formatStorageSize(bytes: number) {
   return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
+function splitFileName(fileName: string) {
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex > 0
+    ? { baseName: fileName.slice(0, dotIndex), extension: fileName.slice(dotIndex) }
+    : { baseName: fileName, extension: "" };
+}
+
 export function ImageLibrary({
   images,
   initialStorageUsage,
@@ -68,6 +75,7 @@ export function ImageLibrary({
   const [createdTags, setCreatedTags] = useState<TagOption[]>([]);
   const [filterTagIds, setFilterTagIds] = useState<string[]>([]);
   const [isUnclassifiedOnly, setIsUnclassifiedOnly] = useState(false);
+  const [isOwnImagesOnly, setIsOwnImagesOnly] = useState(false);
   const [isFilterPickerOpen, setIsFilterPickerOpen] = useState(false);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
@@ -76,6 +84,13 @@ export function ImageLibrary({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [renamedTags, setRenamedTags] = useState<Record<string, string>>({});
   const [deletedTagIds, setDeletedTagIds] = useState<string[]>([]);
+  const [imageNameOverrides, setImageNameOverrides] = useState<Record<string, string>>(
+    {}
+  );
+  const [isEditingFileName, setIsEditingFileName] = useState(false);
+  const [fileNameBase, setFileNameBase] = useState("");
+  const [isRenamingFile, setIsRenamingFile] = useState(false);
+  const [fileNameError, setFileNameError] = useState<string | null>(null);
 
   const knownTags = [
     ...new Map(
@@ -98,16 +113,25 @@ export function ImageLibrary({
   );
   const selectedImage =
     activeImages.find((image) => image.id === selectedImageId) ?? null;
+  const selectedFileName = selectedImage
+    ? imageNameOverrides[selectedImage.id] ?? selectedImage.fileName
+    : "";
+  const selectedFileNameParts = splitFileName(selectedFileName);
   const selectedFilterTags = knownTags.filter((tag) =>
     filterTagIds.includes(tag.id)
   );
-  const filterSummary = isUnclassifiedOnly
+  const contentFilterSummary = isUnclassifiedOnly
     ? "未分類のみ"
     : selectedFilterTags.length === 0
       ? "条件なし"
       : selectedFilterTags.length <= 2
         ? selectedFilterTags.map((tag) => tag.name).join("・")
         : `${selectedFilterTags.length}件選択中`;
+  const filterSummary = isOwnImagesOnly
+    ? contentFilterSummary === "条件なし"
+      ? "自分の画像のみ"
+      : `${contentFilterSummary} + 自分`
+    : contentFilterSummary;
   const filterCandidates = knownTags.filter(
     (tag) =>
       !filterTagIds.includes(tag.id) &&
@@ -135,6 +159,7 @@ export function ImageLibrary({
   }
 
   const filteredImages = activeImages.filter((image) => {
+    if (isOwnImagesOnly && image.uploadedBy !== currentUserId) return false;
     const imageTags = tagsFor(image);
     if (isUnclassifiedOnly) return imageTags.length === 0;
 
@@ -163,8 +188,45 @@ export function ImageLibrary({
   function clearFilters() {
     setFilterTagIds([]);
     setIsUnclassifiedOnly(false);
+    setIsOwnImagesOnly(false);
     setFilterQuery("");
     setIsFilterPickerOpen(false);
+  }
+
+  async function renameSelectedImage() {
+    if (!selectedImage || isRenamingFile) return;
+
+    const nextFileName = `${fileNameBase.trim()}${selectedFileNameParts.extension}`;
+    setIsRenamingFile(true);
+    setFileNameError(null);
+
+    try {
+      const response = await fetch(`/api/images/${selectedImage.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: nextFileName }),
+      });
+      const result = (await response.json()) as {
+        image?: { id: string; fileName: string };
+        error?: string;
+      };
+
+      if (!response.ok || !result.image) {
+        throw new Error(result.error ?? "ファイル名を変更できませんでした。");
+      }
+
+      setImageNameOverrides((current) => ({
+        ...current,
+        [selectedImage.id]: result.image!.fileName,
+      }));
+      setIsEditingFileName(false);
+    } catch (error) {
+      setFileNameError(
+        error instanceof Error ? error.message : "ファイル名を変更できませんでした。"
+      );
+    } finally {
+      setIsRenamingFile(false);
+    }
   }
 
   async function deleteSelectedImage() {
@@ -321,7 +383,7 @@ export function ImageLibrary({
           </span>
           <span
             className={`truncate text-sm ${
-              filterTagIds.length > 0 || isUnclassifiedOnly
+              filterTagIds.length > 0 || isUnclassifiedOnly || isOwnImagesOnly
                 ? "font-medium text-amber-800 dark:text-amber-300"
                 : "text-stone-400 dark:text-stone-500"
             }`}
@@ -335,7 +397,7 @@ export function ImageLibrary({
             id="image-filter-panel"
             className="border-t border-stone-200 px-4 py-4 dark:border-stone-800 sm:px-5"
           >
-            {(filterTagIds.length > 0 || isUnclassifiedOnly) && (
+            {(filterTagIds.length > 0 || isUnclassifiedOnly || isOwnImagesOnly) && (
               <div className="mb-3 flex justify-end">
                 <button
                   type="button"
@@ -418,6 +480,15 @@ export function ImageLibrary({
           />
           未分類のみ
         </label>
+        <label className="mt-1 flex min-h-9 w-fit cursor-pointer items-center gap-2 text-sm text-zinc-700 dark:text-zinc-200">
+          <input
+            type="checkbox"
+            checked={isOwnImagesOnly}
+            onChange={(event) => setIsOwnImagesOnly(event.target.checked)}
+            className="h-4 w-4 rounded border-zinc-300"
+          />
+          自分の画像のみ
+        </label>
           </div>
         )}
       </section>
@@ -435,6 +506,7 @@ export function ImageLibrary({
           {filteredImages.map((image) => {
             const imageTags = tagsFor(image);
             const visibleTags = imageTags.slice(0, 3);
+            const imageFileName = imageNameOverrides[image.id] ?? image.fileName;
 
             return (
             <button
@@ -442,6 +514,8 @@ export function ImageLibrary({
               type="button"
               onClick={() => {
                 setDeleteError(null);
+                setFileNameError(null);
+                setIsEditingFileName(false);
                 setSelectedImageId(image.id);
               }}
               className="group overflow-hidden rounded-xl border border-stone-200 bg-white text-left shadow-sm shadow-stone-200/50 transition duration-200 hover:-translate-y-0.5 hover:border-stone-300 hover:shadow-lg hover:shadow-stone-200/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 dark:border-stone-800 dark:bg-stone-900 dark:shadow-none dark:hover:border-stone-700"
@@ -449,7 +523,7 @@ export function ImageLibrary({
               <div className="relative aspect-video overflow-hidden bg-stone-100 dark:bg-stone-800">
                 <Image
                   src={image.signedUrl}
-                  alt={image.fileName}
+                  alt={imageFileName}
                   fill
                   sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                   className="object-cover transition duration-300 group-hover:scale-[1.02]"
@@ -457,7 +531,7 @@ export function ImageLibrary({
               </div>
               <div className="p-4 pb-4">
                 <p className="truncate font-medium text-zinc-950 dark:text-zinc-50">
-                  {image.fileName}
+                  {imageFileName}
                 </p>
                 <time className="mt-1 block text-sm text-zinc-500 dark:text-zinc-400">
                   {formatDate(image.createdAt)}
@@ -513,10 +587,10 @@ export function ImageLibrary({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`${selectedImage.fileName}のプレビュー`}
+          aria-label={`${selectedFileName}のプレビュー`}
           className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/85 p-3 backdrop-blur-sm sm:p-8"
           onClick={() => {
-            if (!isDeleting) setSelectedImageId(null);
+            if (!isDeleting && !isRenamingFile) setSelectedImageId(null);
           }}
         >
           <div
@@ -525,9 +599,71 @@ export function ImageLibrary({
           >
             <div className="flex shrink-0 items-start justify-between gap-4 border-b border-stone-200 px-4 py-3.5 dark:border-stone-800 sm:px-5">
               <div className="min-w-0">
-                <p className="truncate font-medium text-zinc-950 dark:text-zinc-50">
-                  {selectedImage.fileName}
-                </p>
+                {isEditingFileName ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void renameSelectedImage();
+                    }}
+                    className="flex flex-wrap items-center gap-2"
+                  >
+                    <label className="sr-only" htmlFor="image-file-name-base">
+                      ファイル名
+                    </label>
+                    <div className="flex min-w-0 items-center rounded-lg border border-stone-300 bg-white focus-within:border-amber-600 dark:border-stone-700 dark:bg-stone-950">
+                      <input
+                        id="image-file-name-base"
+                        type="text"
+                        value={fileNameBase}
+                        onChange={(event) => setFileNameBase(event.target.value)}
+                        disabled={isRenamingFile}
+                        maxLength={Math.max(1, 255 - selectedFileNameParts.extension.length)}
+                        autoFocus
+                        className="min-h-9 min-w-0 w-52 bg-transparent px-3 py-1.5 text-sm text-stone-950 outline-none disabled:opacity-60 dark:text-stone-50"
+                      />
+                      <span className="shrink-0 border-l border-stone-200 px-2 text-sm text-stone-500 dark:border-stone-700 dark:text-stone-400">
+                        {selectedFileNameParts.extension}
+                      </span>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isRenamingFile || !fileNameBase.trim()}
+                      className="min-h-9 rounded-lg bg-stone-900 px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-stone-50 dark:text-stone-950"
+                    >
+                      {isRenamingFile ? "保存中…" : "保存"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingFileName(false);
+                        setFileNameError(null);
+                      }}
+                      disabled={isRenamingFile}
+                      className="min-h-9 rounded-lg px-3 py-1.5 text-sm font-medium text-stone-600 hover:bg-stone-100 disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                    >
+                      キャンセル
+                    </button>
+                  </form>
+                ) : (
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="truncate font-medium text-zinc-950 dark:text-zinc-50">
+                      {selectedFileName}
+                    </p>
+                    {selectedImage.uploadedBy === currentUserId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFileNameBase(selectedFileNameParts.baseName);
+                          setFileNameError(null);
+                          setIsEditingFileName(true);
+                        }}
+                        className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                      >
+                        編集
+                      </button>
+                    )}
+                  </div>
+                )}
                 <time className="mt-1 block text-sm text-zinc-500 dark:text-zinc-400">
                   {formatDate(selectedImage.createdAt)}
                 </time>
@@ -542,7 +678,7 @@ export function ImageLibrary({
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <a
                   href={`/api/images/${selectedImage.id}/download`}
-                  download={selectedImage.fileName}
+                  download={selectedFileName}
                   className="min-h-9 rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100 dark:border-stone-700 dark:text-stone-200 dark:hover:bg-stone-800"
                 >
                   画像を保存
@@ -551,7 +687,7 @@ export function ImageLibrary({
                   <button
                     type="button"
                     onClick={deleteSelectedImage}
-                    disabled={isDeleting}
+                    disabled={isDeleting || isRenamingFile}
                     className="min-h-9 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
                   >
                     {isDeleting ? "削除中…" : "画像を削除"}
@@ -560,25 +696,25 @@ export function ImageLibrary({
                 <button
                   type="button"
                   onClick={() => setSelectedImageId(null)}
-                  disabled={isDeleting}
+                  disabled={isDeleting || isRenamingFile}
                   className="min-h-9 rounded-lg px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100 disabled:opacity-50 dark:text-stone-200 dark:hover:bg-stone-800"
                 >
                   閉じる
                 </button>
               </div>
             </div>
-            {deleteError && (
+            {(deleteError || fileNameError) && (
               <p
                 role="alert"
                 className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
               >
-                {deleteError}
+                {deleteError ?? fileNameError}
               </p>
             )}
             <div className="relative min-h-0 flex-1 bg-black">
               <Image
                 src={selectedImage.signedUrl}
-                alt={selectedImage.fileName}
+                alt={selectedFileName}
                 fill
                 sizes="100vw"
                 className="object-contain"
